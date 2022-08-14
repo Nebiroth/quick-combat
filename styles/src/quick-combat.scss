@@ -1,0 +1,49 @@
+$c-white: #fff;
+$c-black: #000;
+$c-green: #41c179;
+$c-yellow: #f7d601;
+$c-orange: #f78c01;
+$c-red: #ca0000;
+
+.combatant {
+  position: relative;
+  height: 60px;
+
+  &::after {
+    content: '';
+    display: block;
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    margin: auto;
+    height: 5px;
+    width: 0px;
+    background: rgba(#fff, 0.75);
+    transition: all ease-in-out 0.25s;
+    pointer-events: none;
+  }
+
+  .token-resource {
+    padding-right: 6px;
+    line-height: 75px;
+    height: 100%;
+    color: #bfbfbf;
+  }
+
+  .token-initiative {
+    padding-top: 14px;
+  }
+}
+
+.drop-hover {
+  &::after {
+    width: 100%;
+  }
+  &:hover,
+    &:active,
+    &:focus {
+      box-shadow: none;
+      background: rgba(255, 255, 255, 1.0);
+    }
+}

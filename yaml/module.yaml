@@ -1,0 +1,24 @@
+name: quick-combat
+title: Quick Combat
+description: Adds health tracking and drag/drop re-ordering to the combat tracker.
+author: Asacolips
+version: 1.1.1
+minimumCoreVersion: 9
+compatibleCoreVersion: 9
+esmodules:
+  - modules/quick-combat.js
+styles:
+  - styles/dist/quick-combat.css
+languages:
+  - lang: en
+    name: English
+    path: lang/en.json
+  - lang: pt-BR
+    name: Português (Brasil)
+    path: lang/pt-BR.json
+  - lang: es
+    name: Español
+    path: lang/es.json
+  - lang: ja
+    name: 日本語
+    path: lang/ja.json

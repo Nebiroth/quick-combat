@@ -1,3 +1,5 @@
+// import './styles/src/quick-combat.scss'
+
 function get_playlist(playlist_name) {
 	let playlist_obj = game.settings.get("quick-combat", playlist_name)
 	console.debug(`quick-combat | getting playlist: ${playlist_name} ${playlist_obj}`)
@@ -11,6 +13,34 @@ function get_playlist(playlist_name) {
 	}
 	return "None"
 }
+
+function getCombatantsData(updateInitiative = false) {
+    // If there isn't a combat, exit and return an empty array.
+    if (!game.combat || !game.combat.data) {
+      return [];
+    }
+
+    let currentInitiative = 0;
+    // Reduce the combatants array into a new object with keys based on
+    // the actor types.
+    let combatants = game.combat.data.combatants.filter(combatant => {
+      // Append valid actors to the appropriate group.
+      if (combatant.actor) {
+		// If the updateInitiative flag was set to true, recalculate the
+		// initiative for each actor while we're looping through them.
+		if (updateInitiative) {
+		combatant.initiative = currentInitiative;
+		currentInitiative = currentInitiative + 10;
+		}
+
+        // Return true to include combatant in filter
+        return true;
+      }
+    });
+
+    // Return the list of combatants
+    return combatants
+  }
 
 Hooks.on("init", () => {
 	console.debug("quick-combat | register keybind settings")
@@ -61,16 +91,16 @@ Hooks.on("init", () => {
 					console.debug("quick-combat | adding combatants to combat")
 					await combat.createEmbeddedDocuments("Combatant", createData)
 					if (CONFIG.hasOwnProperty("DND5E")) {
-						console.log("quick-combat | rolling initiatives for NPCs")
+						console.debug("quick-combat | rolling initiatives for NPCs")
 						await combat.rollNPC()
 						//check for PC roll option
 						if (game.settings.get("quick-combat", "npcroll")) {
 							return;
 						}
-						console.log("quick-combat | rolling initiatives for PCs")
+						console.debug("quick-combat | rolling initiatives for PCs")
 						//roll all PCs that haven't rolled initiative yet
 						await combat.rollInitiative(combat.combatants.filter(a => a.actor.hasPlayerOwner).filter(a => !a.initiative).map(a => a.id))
-						console.log("quick-combat | starting combat")
+						console.debug("quick-combat | starting combat")
 						await combat.startCombat();
 					}
 					else if (CONFIG.hasOwnProperty("OSE")) {
@@ -84,9 +114,184 @@ Hooks.on("init", () => {
 	});
 });
 
+    // When the combat tracker is rendered, we need to completely replace
+    // its HTML with a custom version.
+Hooks.on('renderCombatTracker', async (app, html, options) => {
+	// If there's as combat, we can proceed.
+	if (game.combat) {
+		// Retrieve a list of the combatants grouped by actor type and sorted
+		// by their initiative count.
+		let combatants = getCombatantsData();
+
+		combatants.forEach(c => {
+		// Add class to trigger drag events.
+		let $combatant = html.find(`.combatant[data-combatant-id="${c.id}"]`);
+		$combatant.addClass('actor-elem');
+		});
+
+		// Drag handler for the combat tracker.
+		if (game.user.isGM) {
+		html.find('.directory-item.actor-elem').attr('draggable', true).addClass('draggable');
+		}
+	}
+});
+
 Hooks.on("ready", () => {
 	console.debug("quick-combat | register settings")
 	let playlists = {"None":"None"}
+
+	// Drag handler for the combat tracker.
+	if (game.user.isGM) {
+		$('body')
+		// Initiate the drag event.
+		.on('dragstart', '#combat .directory-item.actor-elem', (event) => {
+			console.debug("drag start")
+			// Set the drag data for later usage.
+			let dragData = event.currentTarget.dataset;
+			event.originalEvent.dataTransfer.setData('text/plain', JSON.stringify(dragData));
+
+			// Store the combatant type for reference. We have to do this
+			// because dragover doesn't have access to the drag data, so we
+			// store it as a new type entry that can be split later.
+			let newCombatant = game.combat.data.combatants.find(c => c.id == dragData.combatantId);
+			event.originalEvent.dataTransfer.setData(`newtype--${dragData.actorType}`, '');
+
+			// // Set the drag image.
+			// let dragIcon = $(event.currentTarget).find('.ce-image-wrapper')[0];
+			// event.originalEvent.dataTransfer.setDragImage(dragIcon, 25, 25);
+		})
+		// Add a class on hover, if the actor types match.
+		.on('dragover', '#combat .directory-item.actor-elem', (event) => {
+			// Get the drop target.
+			let $self = $(event.originalEvent.target);
+			let $dropTarget = $self.parents('.directory-item');
+
+			// Exit early if we don't need to make any changes.
+			if ($dropTarget.hasClass('drop-hover')) {
+			return;
+			}
+
+			if (!$dropTarget.data('combatant-id')) {
+			return;
+			}
+
+			// Add the hover class.
+			$dropTarget.addClass('drop-hover');
+			document.getElementsByClassName('drop-hover')
+			return false;
+		})
+		// Remove the class on drag leave.
+		.on('dragleave', '#combat .directory-item.actor-elem', (event) => {
+			// Get the drop target and remove any hover classes on it when
+			// the mouse leaves it.
+			let $self = $(event.originalEvent.target);
+			let $dropTarget = $self.parents('.directory-item');
+			$dropTarget.removeClass('drop-hover');
+			return false;
+		})
+		// Update initiative on drop.
+		.on('drop', '#combat .directory-item.actor-elem', async (event) => {
+			// Retrieve the default encounter.
+			let combat = game.combat;
+
+			if (combat === null || combat === undefined) {
+			// When dragging a token from the actors tab this drop event fire but we aren't in combat.
+			// This catches all instances of drop events when not in combat.
+			return;
+			}
+
+			// TODO: This is how foundry.js retrieves the combat in certain
+			// scenarios, so I'm leaving it here as a comment in case this
+			// needs to be refactored.
+			// ---------------------------------------------------------------
+			// const view = game.scenes.viewed;
+			// const combats = view ? game.combats.entities.filter(c => c.data.scene === view.id) : [];
+			// let combat = combats.length ? combats.find(c => c.data.active) || combats[0] : null;
+
+			// Retreive the drop target, remove any hover classes.
+			let $self = $(event.originalEvent.target);
+			let $dropTarget = $self.parents('.directory-item');
+			$dropTarget.removeClass('drop-hover');
+
+			// Attempt to retrieve and parse the data transfer from the drag.
+			let data;
+			try {
+			data = JSON.parse(event.originalEvent.dataTransfer.getData('text/plain'));
+			// if (data.type !== "Item") return;
+			} catch (err) {
+			return false;
+			}
+
+			// Retrieve the combatant being dropped.
+			let newCombatant = combat.data.combatants.find(c => c.id == data.combatantId);
+
+			// Retrieve the combatants grouped by type.
+			let combatants = getCombatantsData(false);
+			// Retrieve the combatant being dropped onto.
+			let originalCombatant = combatants.find(c => {
+			return c.id == $dropTarget.data('combatant-id');
+			});
+
+			// Exit early if there's no target.
+			if (!originalCombatant?.id) {
+			return;
+			}
+
+			let nextCombatantElem = $(`.combatant[data-combatant-id="${originalCombatant.id}"] + .combatant`);
+			let nextCombatantId = nextCombatantElem.length > 0 ? nextCombatantElem.data('combatant-id') : null;
+			let nextCombatant = null;
+			if (nextCombatantId) {
+			nextCombatant = combatants.find(c => c.id == nextCombatantId);
+			}
+
+			if (nextCombatant && nextCombatant.id == newCombatant.id) {
+			return;
+			}
+
+			// Set the initiative equal to the drop target's initiative.
+			let oldInit = [
+			originalCombatant ? Number(originalCombatant.initiative) : 0,
+			nextCombatant ? Number(nextCombatant.initiative) : Number(originalCombatant.initiative) - 1,
+			];
+
+			// If the initiative was valid, we need to update the initiative
+			// for every combatant to reset their numbers.
+			if (oldInit !== null) {
+			// Set the initiative of the actor being draged to the drop
+			// target's -1. This will later be adjusted increments of 10.
+			// let updatedCombatant = combatants.find(c => c.id == newCombatant.id);
+			let initiative = (oldInit[0] + oldInit[1]) / 2;
+			let updateOld = false;
+
+			// Handle identical initiative.
+			if (oldInit[0] == oldInit[1] && oldInit[0] % 1 == 0) {
+			oldInit[0] += 2;
+			initiative = (oldInit[1] + 1);
+			updateOld = true;
+			}
+
+			let updates = [{
+				_id: newCombatant.id,
+				initiative: initiative
+			}];
+
+			if (updateOld) {
+				updates.push({
+				_id: originalCombatant.id,
+				initiative: oldInit[0]
+				});
+			}
+
+			// If there are updates, update the combatants at once.
+			if (updates) {
+				await combat.updateEmbeddedDocuments('Combatant', updates, {});
+				ui.combat.render();
+			}
+			}
+		}); // end of html.find('.directory-item.actor-elem')
+	}
+
+
 	game.playlists.contents.map(x => playlists[x.data.name] = x.data.name)
 	// module settings
 	game.settings.register("quick-combat", "playlist", {
@@ -193,7 +398,7 @@ Hooks.on("preUpdateCombat", async (combat, update, options, userId) => {
 						});
 						game.settings.set("quick-combat", "oldPlaylist", playlists)
 						game.settings.set("quick-combat", "combatPlaylist", playlist)
-						console.log(`quick-combat | starting combat playlist ${playlist}`)
+						console.debug(`quick-combat | starting combat playlist ${playlist}`)
 						await game.playlists.getName(playlist).playAll();
 					}
 					else {
@@ -232,7 +437,7 @@ Hooks.on("preUpdateCombat", async (combat, update, options, userId) => {
 						});
 						game.settings.set("quick-combat", "oldPlaylist", playlists)
 						game.settings.set("quick-combat", "combatPlaylist", playlist)
-						console.log(`quick-combat | starting combat playlist ${playlist}`)
+						console.debug(`quick-combat | starting combat playlist ${playlist}`)
 						await game.playlists.getName(playlist).playAll();
 					}
 					else {
@@ -260,7 +465,7 @@ Hooks.on("preUpdateCombat", async (combat, update, options, userId) => {
 			});
 			game.settings.set("quick-combat", "oldPlaylist", playlists)
 			game.settings.set("quick-combat", "combatPlaylist", playlist)
-			console.log(`quick-combat | starting combat playlist ${playlist}`)
+			console.debug(`quick-combat | starting combat playlist ${playlist}`)
 			await game.playlists.getName(playlist).playAll();
 		}
 		else {
@@ -292,13 +497,13 @@ Hooks.on("deleteCombat", async (combat, options, userId) => {
 		}
 		else {
 			exp = Math.round(exp / pcs.length);
-			console.log(`quick-combat | awarding exp ${exp} to PCs`)
+			console.debug(`quick-combat | awarding exp ${exp} to PCs`)
 			if (exp != 0 && !isNaN(exp)) {
 				let actor_exp_msg = "<table>";
 				pcs.forEach(function(a) {
 					let new_exp = null;
 					if (CONFIG.hasOwnProperty("OSE")) {
-						console.log("exp", exp)
+						console.debug("exp", exp)
 						//calculate share should be 100%
 						exp = exp * (a.actor.data.data.details.xp.share / 100)
 						//add ose specific details: previous exp amount + exp + bonus
@@ -445,3 +650,5 @@ Hooks.on("renderChatMessage", (message, html, data) => {
 		token?.control({ multiSelect: false, releaseOthers: true });
 	})
 })
+
+ 

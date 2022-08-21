@@ -25,7 +25,7 @@
 	},
 	"esmodules": ["scripts/quick-combat.js"],
 	"scripts": [],
-	"styles": [],
+	"styles": ["styles/dist/quick-combat.css"],
 	"languages": [
 		{
 			"lang": "en",
@@ -39,4 +39,3 @@
 	"license": "LICENSE",
 	"readme": "README.md"
 }
-  
